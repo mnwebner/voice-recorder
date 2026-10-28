@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <title>Voice Recorder</title>
+  <style>
+    :root {
+      --ink: #1d2b4f;
+      --sky: #e3efff;
+      --paper: #ffffff;
+      --rec: #d62839;
+      --go: #1f8a5b;
+      --sun: #ffc93c;
+      --muted: #55627f;
+      --line: #c5d5ee;
+      --level: 0;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      background: var(--sky);
+      color: var(--ink);
+      display: flex;
+      justify-content: center;
+      padding: 16px;
+    }
+    main {
+      width: 100%;
+      max-width: 520px;
+      background: var(--paper);
+      border: 3px solid var(--ink);
+      border-radius: 28px;
+      padding: 28px 24px 24px;
+      text-align: center;
+      align-self: flex-start;
+    }
+    h1 { font-size: 1.6rem; margin: 0 0 4px; }
+    #status {
+      font-size: 1.15rem;
+      color: var(--muted);
+      min-height: 1.6em;
+      margin: 0 0 20px;
+    }
+
+    /* The big round button, with a ring that grows with the voice level */
+    .stage {
+      position: relative;
+      width: 190px; height: 190px;
+      margin: 0 auto 8px;
+      display: grid; place-items: center;
+    }
+    .ring {
+      position: absolute; inset: 0;
+      border-radius: 50%;
+      background: var(--rec);
+      opacity: 0;
+      transform: scale(calc(0.8 + var(--level) * 0.25));
+      transition: transform 0.08s linear, opacity 0.2s;
+    }
+    body.recording .ring { opacity: 0.22; }
+    #mainBtn {
+      position: relative;
+      width: 140px; height: 140px;
+      border-radius: 50%;
+      border: 4px solid var(--ink);
+      background: var(--rec);
+      color: #fff;
+      font: inherit; font-size: 1.25rem; font-weight: 700;
+      cursor: pointer;
+    }
+    body.recording #mainBtn { background: var(--ink); }
+    body.review #mainBtn { display: none; }
+    #setup { display: none; margin: 4px 0 8px; }
+    body.needmic #setup { display: block; }
+    body.needmic .stage, body.needmic #timer { display: none; }
+    #setup p { margin: 0 0 14px; color: var(--muted); font-size: 1.05rem; }
+    #allowBtn {
+      font: inherit; font-size: 1.3rem; font-weight: 700;
+      padding: 16px 28px; min-height: 60px;
+      border-radius: 18px; border: 4px solid var(--ink);
+      background: var(--go); color: #fff; cursor: pointer;
+    }
+    body.review .stage { height: 0; width: 0; margin: 0; }
+
+    #timer {
+      font-size: 2rem; font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      margin: 8px 0 18px;
+    }
+    body.review #timer { font-size: 1.1rem; color: var(--muted); font-weight: 400; margin: 0 0 12px; }
+
+    audio { width: 100%; margin-bottom: 16px; }
+    #review { display: none; }
+    body.review #review { display: block; }
+
+    .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    button.act {
+      font: inherit; font-size: 1.05rem; font-weight: 700;
+      padding: 12px 20px; min-height: 48px;
+      border-radius: 14px; border: 3px solid var(--ink);
+      background: var(--paper); color: var(--ink);
+      cursor: pointer;
+    }
+    button.act.primary { background: var(--go); color: #fff; }
+    button.act.danger { border-color: var(--rec); color: var(--rec); }
+    button:focus-visible { outline: 4px solid var(--sun); outline-offset: 3px; }
+
+    #confirm {
+      display: none;
+      margin-top: 16px; padding: 16px;
+      background: #fff6d6; border: 3px solid var(--ink); border-radius: 16px;
+    }
+    #confirm.open { display: block; }
+    #confirm p { margin: 0 0 12px; font-size: 1.05rem; }
+
+    #error {
+      display: none;
+      margin-top: 16px; padding: 14px;
+      background: #ffe3e6; border: 3px solid var(--rec); border-radius: 16px;
+      text-align: left;
+    }
+    #error.open { display: block; }
+
+    .privacy { margin: 22px 0 0; font-size: 0.9rem; color: var(--muted); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ring { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Voice Recorder</h1>
+    <p id="status" role="status" aria-live="polite">Checking your microphone…</p>
+
+    <div id="setup">
+      <p>First, let this page use your microphone. Your browser will ask. Choose <strong>Allow</strong>.</p>
+      <button id="allowBtn" type="button">Allow microphone</button>
+    </div>
+
+    <div class="stage">
+      <div class="ring" aria-hidden="true"></div>
+      <button id="mainBtn" type="button">Record</button>
+    </div>
+    <div id="timer" aria-hidden="true">0:00</div>
+
+    <div id="review">
+      <audio id="player" controls></audio>
+      <div class="row">
+        <button class="act primary" id="downloadBtn" type="button">Download</button>
+        <button class="act" id="restartBtn" type="button">Start over</button>
+        <button class="act danger" id="deleteBtn" type="button">Delete</button>
+      </div>
+    </div>
+
+    <div id="confirm" role="alertdialog" aria-labelledby="confirmText">
+      <p id="confirmText"></p>
+      <div class="row">
+        <button class="act danger" id="confirmYes" type="button"></button>
+        <button class="act" id="confirmNo" type="button">Keep it</button>
+      </div>
+    </div>
+
+    <div id="error" role="alert"></div>
+
+    <p class="privacy">
+      Your recording stays on this device. It is not uploaded or saved anywhere
+      unless you press Download.
+    </p>
+  </main>
+
+<script>
+(function () {
+  'use strict';
+
+  var MAX_SECONDS = 300;            // auto-stop after 5 minutes (change if you like)
+
+  var els = {
+    status:  document.getElementById('status'),
+    main:    document.getElementById('mainBtn'),
+    timer:   document.getElementById('timer'),
+    player:  document.getElementById('player'),
+    dl:      document.getElementById('downloadBtn'),
+    restart: document.getElementById('restartBtn'),
+    del:     document.getElementById('deleteBtn'),
+    confirm: document.getElementById('confirm'),
+    cText:   document.getElementById('confirmText'),
+    cYes:    document.getElementById('confirmYes'),
+    cNo:     document.getElementById('confirmNo'),
+    error:   document.getElementById('error'),
+    allow:   document.getElementById('allowBtn')
+  };
+
+  var stream = null, recorder = null, chunks = [];
+  var audioCtx = null, analyser = null, rafId = null;
+  var tickId = null, startedAt = 0;
+  var blob = null, objectUrl = null, mimeType = '', pendingAction = null;
+
+  /* ---------- helpers ---------- */
+  function setMode(mode) {                       // 'idle' | 'recording' | 'review'
+    document.body.className = mode;
+  }
+  function say(text) { els.status.textContent = text; }
+  function fmt(s) {
+    var m = Math.floor(s / 60), r = Math.floor(s % 60);
+    return m + ':' + (r < 10 ? '0' : '') + r;
+  }
+  function showError(html) { els.error.innerHTML = html; els.error.classList.add('open'); }
+  function clearError() { els.error.classList.remove('open'); els.error.textContent = ''; }
+  function pickMime() {
+    var types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+    for (var i = 0; i < types.length; i++) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(types[i])) return types[i];
+    }
+    return '';
+  }
+  function extFor(type) {
+    if (type.indexOf('mp4') > -1) return 'm4a';
+    if (type.indexOf('ogg') > -1) return 'ogg';
+    return 'webm';
+  }
+
+
+  /* ---------- microphone permission ---------- */
+  function embedBlocksMic() {
+    try {
+      var fp = document.permissionsPolicy || document.featurePolicy;
+      if (fp && fp.allowsFeature) return !fp.allowsFeature('microphone');
+    } catch (e) {}
+    return false;
+  }
+
+  function micProblem(err) {
+    var name = err && err.name ? err.name : 'unknown';
+    if (embedBlocksMic()) {
+      return '<strong>This page is not allowed to use the microphone.</strong><br>' +
+             'The frame this page runs in is blocking it, so the browser never shows the Allow button. ' +
+             'Please tell your teacher.<br><small>Error: ' + name + ' (blocked by frame)</small>';
+    }
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      return '<strong>The microphone is blocked.</strong><br>' +
+             'Click the lock or microphone icon at the left of the address bar, set Microphone to <em>Allow</em>, ' +
+             'then reload this page.<br><small>Error: ' + name + '</small>';
+    }
+    if (name === 'NotFoundError') {
+      return '<strong>No microphone found.</strong><br>Check that a microphone is plugged in or turned on, then try again.';
+    }
+    if (name === 'NotReadableError') {
+      return '<strong>The microphone is busy.</strong><br>Close other tabs or apps that might be using it, then try again.';
+    }
+    return '<strong>Something went wrong with the microphone.</strong><br>Reload the page and try again.<br><small>Error: ' + name + '</small>';
+  }
+
+  // Asks the browser for permission (this is what shows the Allow popup),
+  // then immediately turns the mic back off. Nothing is recorded.
+  function requestMic() {
+    clearError();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showError('<strong>Recording isn\'t available here.</strong><br>Open this page in Chrome using its direct web app link (not the editor preview).');
+      return;
+    }
+    say('Look for the Allow button at the top of your screen…');
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+      s.getTracks().forEach(function (t) { t.stop(); });
+      micReady();
+    }).catch(function (err) {
+      say('The microphone is not turned on yet.');
+      showError(micProblem(err));
+    });
+  }
+
+  function micReady() {
+    clearError();
+    if (document.body.className === 'needmic') {
+      setMode('idle');
+      say('Press the red button to start.');
+    }
+  }
+
+  function checkMicOnLoad() {
+    if (embedBlocksMic()) {
+      setMode('needmic');
+      say('The microphone is not available.');
+      showError(micProblem({ name: 'NotAllowedError' }));
+      return;
+    }
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'microphone' }).then(function (st) {
+        if (st.state === 'granted') { setMode('idle'); say('Press the red button to start.'); }
+        else { setMode('needmic'); say('Let\'s turn on your microphone.'); }
+        st.onchange = function () { if (st.state === 'granted') micReady(); };
+      }).catch(function () { setMode('needmic'); say('Let\'s turn on your microphone.'); });
+    } else {
+      setMode('needmic'); say('Let\'s turn on your microphone.');
+    }
+  }
+
+  /* ---------- level ring ---------- */
+  function startMeter() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AC();
+      var src = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      var data = new Uint8Array(analyser.fftSize);
+      (function loop() {
+        analyser.getByteTimeDomainData(data);
+        var sum = 0;
+        for (var i = 0; i < data.length; i++) { var v = (data[i] - 128) / 128; sum += v * v; }
+        var level = Math.min(1, Math.sqrt(sum / data.length) * 4);
+        document.documentElement.style.setProperty('--level', level.toFixed(2));
+        rafId = requestAnimationFrame(loop);
+      })();
+    } catch (e) { /* the ring is a nicety; recording still works without it */ }
+  }
+  function stopMeter() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    document.documentElement.style.setProperty('--level', 0);
+    if (audioCtx) { try { audioCtx.close(); } catch (e) {} }
+    audioCtx = null; analyser = null;
+  }
+  function releaseMic() {
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); }
+    stream = null;
+  }
+
+  /* ---------- recording ---------- */
+  function startRecording() {
+    clearError();
+    closeConfirm();
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      showError('<strong>Recording isn\'t available here.</strong><br>Open this page in Chrome using its direct web app link (not the editor preview), then try again.');
+      return;
+    }
+    say('Asking to use the microphone…');
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+      stream = s;
+      chunks = [];
+      mimeType = pickMime();
+      recorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+      mimeType = recorder.mimeType || mimeType;
+      recorder.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      recorder.onstop = finishRecording;
+      recorder.start();
+      startedAt = Date.now();
+      els.timer.textContent = '0:00';
+      els.main.textContent = 'Stop';
+      setMode('recording');
+      say('Recording… talk now!');
+      startMeter();
+      tickId = setInterval(function () {
+        var secs = (Date.now() - startedAt) / 1000;
+        els.timer.textContent = fmt(secs);
+        if (secs >= MAX_SECONDS) stopRecording();
+      }, 250);
+    }).catch(function (err) {
+      releaseMic();
+      setMode('needmic');
+      say('The microphone is not turned on yet.');
+      showError(micProblem(err));
+    });
+  }
+
+  function stopRecording() {
+    clearInterval(tickId); tickId = null;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    stopMeter();
+    releaseMic();                                 // turns the mic (and its light) off
+  }
+
+  function finishRecording() {
+    var secs = (Date.now() - startedAt) / 1000;
+    blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+    chunks = [];
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = URL.createObjectURL(blob);
+    els.player.src = objectUrl;
+    els.timer.textContent = 'Length: ' + fmt(secs);
+    els.main.textContent = 'Record';
+    setMode('review');
+    say('Listen to your recording.');
+  }
+
+  /* ---------- delete / start over ---------- */
+  function discard() {
+    if (els.player) { els.player.pause(); els.player.removeAttribute('src'); els.player.load(); }
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+    blob = null; chunks = [];
+    els.timer.textContent = '0:00';
+    els.main.textContent = 'Record';
+    setMode('idle');
+  }
+
+  function openConfirm(action) {
+    pendingAction = action;
+    if (action === 'delete') {
+      els.cText.textContent = 'Delete this recording? It will be gone for good.';
+      els.cYes.textContent = 'Yes, delete';
+    } else {
+      els.cText.textContent = 'Start over? Your current recording will be erased.';
+      els.cYes.textContent = 'Yes, start over';
+    }
+    els.confirm.classList.add('open');
+    els.cNo.focus();
+  }
+  function closeConfirm() { els.confirm.classList.remove('open'); pendingAction = null; }
+
+  /* ---------- download ---------- */
+  function download() {
+    if (!blob) return;
+    var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    var name = 'my-recording-' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+               '_' + p(d.getHours()) + p(d.getMinutes()) + '.' + extFor(mimeType);
+    var a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    say('Downloaded! Check your Downloads folder.');
+  }
+
+  /* ---------- wiring ---------- */
+  els.main.addEventListener('click', function () {
+    if (document.body.className === 'recording') stopRecording(); else startRecording();
+  });
+  els.allow.addEventListener('click', requestMic);
+  els.dl.addEventListener('click', download);
+  els.restart.addEventListener('click', function () { openConfirm('restart'); });
+  els.del.addEventListener('click', function () { openConfirm('delete'); });
+  els.cNo.addEventListener('click', closeConfirm);
+  els.cYes.addEventListener('click', function () {
+    var action = pendingAction;
+    closeConfirm();
+    discard();
+    if (action === 'restart') startRecording();
+    else say('Deleted. Press the red button to record again.');
+  });
+
+  // Warn before leaving if there is a recording that hasn't been downloaded or deleted
+  window.addEventListener('beforeunload', function (e) {
+    if (blob || (recorder && recorder.state === 'recording')) { e.preventDefault(); e.returnValue = ''; }
+  });
+  window.addEventListener('pagehide', function () { stopMeter(); releaseMic(); });
+
+  checkMicOnLoad();
+})();
+</script>
+</body>
+</html>
